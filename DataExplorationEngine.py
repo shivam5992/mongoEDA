@@ -15,21 +15,42 @@ class Get:
 		return db[collname].find()
 
 class EDA:
+	def __init__(self, missing_types):
+		self.missing_types = missing_types
 
-	''' Need to fix this '''
+	def checkDataType(self, var):
+		if type(var) == float:
+			return "Double"
+		elif type(var) == int:
+			return "Integer"
+		elif type(var) == str:
+			return "String"
+		elif var.isdigit():
+			return "Integer"
+		elif var.isalnum():
+			return "Alphanumeric"
+		else:
+			return type(var)
+
+	def identifyVariableDataType(self, key):
+		distinct = self.getDistinct(key)
+		value = distinct[random.randint(0,len(distinct))]
+		if value and value not in self.missing_types:
+			return self.checkDataType(value)
+		return None
+
 	def identifyVariableType(self, key):
 		distinct_count = self.getDistinctCount(key)
 		total_count = self.getTotalCount(key)
 		ratio_unique = round((float(distinct_count) / total_count) * 100,2)
-		return ratio_unique
-
-	# Function to fix the datatype of a variable in mongo
-	def fixDataType(self, key, type):
-		return None
+		if ratio_unique > 0.5:
+			return "Categorical"
+		else:
+			return "Continuous"
 
 
 	''' Univariate Analysis on variable '''
-	# TODO - ADD MEDIAN AND MODE
+	''' Need to add Median, Mode etc '''
 	def Univariate(self, key, limit = False, sorting_order = "DESC", central_tendencies = True):
 		sorter = -1
 		if sorting_order != "DESC":
@@ -60,6 +81,22 @@ class EDA:
 
 	def cursor_to_list(self, cursor):
 		return 	[_ for _ in cursor]
+
+
+	''' Get Missing Count '''
+	def getMissingCount(self, key, missing_type):
+		if type(missing_type) == list:
+			count = 0
+			for miss_type in missing_type:
+				count += db[collname].find({key:missing_type}).count()
+			return count
+		else:
+			return db[collname].find({key:missing_type}).count()
+
+	# Complete This Function
+	def getOutliers(self, key, threshold):
+		distincts = self.getDistinct(key)
+
 
 	''' Get BiVariate Distributions '''
 	def BiVariate(self, key1, key2, limit = False, sorting_order = "DESC"):
@@ -197,10 +234,7 @@ class Visualize:
 	def createUniTable(self, listofdicts, key):
 		print key
 		for each in listofdicts:
-			# if ">" in str(each['_id']):
-			# 	print str(each['_id'].split(">")[1]).replace("<br","") * each['sum']
-
-			print str(each['_id']) +"\t"+ str(each['sum']) #+ "\t" + str(each['min'])+ "\t" + str(each['max'])+ "\t" + str(each['avg'])
+			print str(each['_id']) +"\t"+ str(each['sum']) + "\t" + str(each['min'])+ "\t" + str(each['max'])+ "\t" + str(each['avg'])
 
 
 	def createBiTable(self, listofdicts, key1, key2):
