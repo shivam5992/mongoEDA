@@ -1,24 +1,78 @@
 from pymongo import MongoClient 
-import math, collections
-db = MongoClient()['LoanAnalysis']
-collname = 'Data'
+from config import *
+import collections
+import math
+import csv
+
+db = MongoClient(HOST, PORT)[DATABASE_NAME]
 
 class Add:
-	def addJson(self, doc):
+	''' 
+	Function to add a json / dictionary as document into mongo database
+	
+	params:
+	doc - the dictionary to be inserted
+	collname - collection name, where to insert the document
+
+	'''
+	def add_json(self, doc, collname):
 		try:
 			db[collname].insert(doc)
 		except Exception as E:
 			print E
 
+	''' 
+	Function to load a csv, dump every row as document in mongo 
+	Make sure that a column named "_id" is present in the csv as the unique identifier
+
+	params:
+	filename - name of the csv file which contains the data 
+	collname - name of the collection where to insert the data 
+	'''
+	def load_csv(self, filename, collname, datatypes):
+		with open(filename) as data:
+			reader = csv.reader(data)
+
+			counter = 0
+			for row in reader:
+				counter += 1
+				if counter == 1:
+					headers = row  
+				else:
+					doc = {}
+					for j,value in enumerate(row):
+						key = headers[j].strip()
+						val = value.strip()
+						if key in datatypes['floats']:
+							doc[key] = float(val)
+						else:
+							doc[key] = val
+					self.add_json(doc, collname) 
+
+				# Print progress
+				if counter % 100 == 0:
+					print counter 
+
 class Get:
-	def getData(self):
+	''' 	
+	Funtion to return all documents from a collection
+
+	params:
+	collname: name of the collection 
+	'''
+	def get_documents(self, collname):
 		return db[collname].find()
 
 class EDA:
-	def __init__(self, missing_types):
+	def __init__(self, missing_types = [None, "NA", "N/A", "Null", "None", ""]):
 		self.missing_types = missing_types
 
-	def checkDataType(self, var):
+	def check_data_type(self, var):
+		''' 
+		Variable Identification - Data Type 
+		Function to detect the variable type
+		'''
+
 		if type(var) == float:
 			return "Double"
 		elif type(var) == int:
@@ -32,14 +86,18 @@ class EDA:
 		else:
 			return type(var)
 
-	def identifyVariableDataType(self, key):
+	def identify_variable_data_type(self, key):
 		distinct = self.getDistinct(key)
 		value = distinct[random.randint(0,len(distinct))]
 		if value and value not in self.missing_types:
 			return self.checkDataType(value)
 		return None
 
-	def identifyVariableType(self, key):
+	def identify_variable_type(self, key):
+		'''
+		Variable Identification - Continuous or Categorical
+		'''
+		
 		distinct_count = self.getDistinctCount(key)
 		total_count = self.getTotalCount(key)
 		ratio_unique = round((float(distinct_count) / total_count) * 100,2)
@@ -49,34 +107,46 @@ class EDA:
 			return "Continuous"
 
 
-	''' Univariate Analysis on variable '''
-	''' Need to add Median, Mode etc '''
-	def Univariate(self, key, limit = False, sorting_order = "DESC", central_tendencies = True):
+	def univariate_analysis(self, key, group_key, collname, limit = False, sorting_order = "DESC", central_tendencies = True):
+		''' 
+		Variable Analysis - Univariate 
+
+		Function to perform univariate analysis on a variable. Works directly for Categorical Variables. For Continuous
+		Variables, one can use binning function first before univariate analysis. 
+
+		params:
+		key: Name of the key (variable) 
+		collname: Name of the collection which contains the documents
+		limit: Number of documents / rows to be analysed, Default is False (all documents)
+		sorting_order: Arranging the results in asending or descending order (ASEC or DESC)
+		central_tendencies: Boolean, True if you want to include mean, median and mode in the results
+
+		'''
+
 		sorter = -1
 		if sorting_order != "DESC":
 			sorter = 1
 
 		if central_tendencies:
-			pipe = [{'$group' : {'_id' : '$'+key, 'freq' : {'$sum':1}, 'mean':{'$avg':1}, 'min':{'$min':1}, 'max':{'$max':1}}}, 
-					{'$sort':{'sum':sorter}}]
+			pipe = [{'$group' : {'_id' : '$'+key, 'freq' : {'$sum':'$'+group_key}, 'mean':{'$avg':'$'+group_key}, 'min':{'$min':'$'+group_key}, 'max':{'$max':'$'+group_key}}}, 
+					{'$sort':{'freq':sorter}}]
 		else:
-			pipe = [{'$group' : {'_id' : '$'+key, 'freq' : {'$sum':1}}},
-					{'$sort':{'sum':sorter}}]
+			pipe = [{'$group' : {'_id' : '$'+key, 'freq' : {'$sum':'$'+group_key}}},
+					{'$sort':{'freq':sorter}}]
 
 		if limit:
 			pipe.append({'$limit':limit})
-
 		res = db[collname].aggregate(pipe)
 		res = self.cursor_to_list(res)
 		return res 
 
-	def getDistinct(self, key):
+	def get_distinct(self, key):
 		return db[collname].distinct(key)
 
-	def getDistinctCount(self, key):
+	def get_distinct_count(self, key):
 		return len(self.getDistinct(key))
 
-	def getTotalCount(self, key):
+	def get_total_count(self, key):
 		return db[collname].find().count()
 
 	def cursor_to_list(self, cursor):
@@ -94,18 +164,30 @@ class EDA:
 			return db[collname].find({key:missing_type}).count()
 
 	# Complete This Function
-	def getOutliers(self, key, threshold):
-		distincts = self.getDistinct(key)
+	# def getOutliers(self, key, threshold):
+		# distincts = self.getDistinct(key)
 
 
-	''' Get BiVariate Distributions '''
-	def BiVariate(self, key1, key2, limit = False, sorting_order = "DESC"):
+	def bivariate_analysis(self, key1, key2, group_key, collname, limit = False, sorting_order = "DESC"):
+		''' 
+		Variable Analysis - BiVariate 
+
+		Function to perform bivariate analysis on a variable. 
+
+		params:
+		key1: Name of the key1 (variable)
+		key2: Name of the key2 (variable) 
+		collname: Name of the collection which contains the documents
+		limit: Number of documents / rows to be analysed, Default is False (all documents)
+		sorting_order: Arranging the results in asending or descending order (ASEC or DESC)
+		'''
+
 		sorter = -1
 		if sorting_order != "DESC":
 			sorter = 1
 
-		pipe = [{'$group' : {'_id' : {'key1':'$'+key1,'key2':'$'+key2}, 'sum' : {'$sum':1}, 'avg':{'$avg':1}, 'min':{'$min':1}, 'max':{'$max':1} }}, 
-				{'$sort':{'sum':sorter}}]
+		pipe = [{'$group' : {'_id' : {'key1':'$'+key1,'key2':'$'+key2}, 'freq' : {'$sum':'$'+group_key}, 'mean':{'$avg':'$'+group_key}, 'min':{'$min':'$'+group_key}, 'max':{'$max':'$'+group_key} }}, 
+				{'$sort':{'freq':sorter}}]
 		if limit:
 			pipe.append({'$limit':limit})
 	
@@ -231,10 +313,13 @@ class EDA:
 
 class Visualize:
 
-	def createUniTable(self, listofdicts, key):
-		print key
+	def create_univariate_table(self, listofdicts, key):
+		print key + "\tFreq\tMin\tMax\tMean"
 		for each in listofdicts:
-			print str(each['_id']) +"\t"+ str(each['sum']) + "\t" + str(each['min'])+ "\t" + str(each['max'])+ "\t" + str(each['avg'])
+			if "min" in each:
+				print str(each['_id']) +"\t"+ str(each['freq']) + "\t" + str(each['min'])+ "\t" + str(each['max'])+ "\t" + str(each['mean'])
+			else:
+				print str(each['_id']) +"\t"+ str(each['freq'])
 
 
 	def createBiTable(self, listofdicts, key1, key2):
@@ -243,7 +328,7 @@ class Visualize:
 			if "key1" not in each['_id'] or "key2" not in each['_id']:
 				continue
 			
-			print str(each['_id']['key1']) +"\t"+ str(each['_id']['key2']) +"\t"+ str(each['sum']) + "\t" + str(each['min'])+ "\t" + str(each['max'])+ "\t" + str(each['avg'])
+			print str(each['_id']['key1']) +"\t"+ str(each['_id']['key2']) +"\t"+ str(each['freq']) + "\t" + str(each['min'])+ "\t" + str(each['max'])+ "\t" + str(each['mean'])
 
 
 	def printBinsTable(self, bins, key, window_size):
@@ -296,9 +381,8 @@ get = Get()
 eda = EDA()
 vis = Visualize()
 
-print eda.identifyVariableType('grade')
-print eda.Univariate('annual_inc')
-
+# print eda.identifyVariableType('grade')
+# print eda.Univariate('annual_inc')
 
 # window_size = 50
 # scaler = 1000
